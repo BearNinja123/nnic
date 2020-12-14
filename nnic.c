@@ -6,7 +6,8 @@
 #define m 8 // number of training data samples
 #define n 3 // number of features per data sample
 #define l1 16 // number of hidden layer neurons
-#define l2 1 // number of output neurons
+#define l2 16 // number of hidden layer 2 neurons
+#define l3 1 // number of output neurons
 
 double X[n][m] = 
 {
@@ -32,36 +33,49 @@ double y[l2][m] =
 */
 
 double t1[l1][n];
-double t2[l2][l1];
 double b1[l1][1];
+double t2[l2][l1];
 double b2[l2][1];
+double t3[l3][l2];
+double b3[l3][1];
 
 double z1[l1][m];
-double z2[l2][m];
 double a1[l1][m];
+double z2[l2][m];
 double a2[l2][m];
+double z3[l3][m];
+double a3[l3][m];
+
 double lds[l2][m];
 double se[l2][m];
 
 double t1g[l1][n]; // theta 1 gradient (accumulated)
+double b1g[l1][1]; 
 double t2g[l2][l1];
-double b1g[l1][1]; // theta 1 gradient (accumulated)
 double b2g[l2][1];
+double t3g[l3][l2];
+double b3g[l3][1];
 
-double tg1l[l1][m]; // non-accumulated gradient
-double tg2l[l2][m];
-double d2[l2][1];
+double tg1l[l1][n]; // non-accumulated gradient
 double d1[l1][1];
-double z2Der[l2][m];
 double z1Der[l1][m];
+double tg2l[l2][l1];
+double d2[l2][1];
+double z2Der[l2][m];
+double tg3l[l3][l2];
+double d3[l3][1];
+double z3Der[l3][m];
 
-double a1t[m][l1];
 double xt[m][n];
 double t1t[n][l1];
+double a1t[m][l1];
 double t2t[l1][l2];
+double a2t[m][l2];
+double t3t[l2][l3];
 
-double a1i[1][l1];
 double xi[1][n];
+double a1i[1][l1];
+double a2i[1][l2];
 
 double relu(double a)
 {
@@ -88,11 +102,16 @@ void forward()
 
   dot(l2, l1, m, t2, a1, z2);
   oppCM(l2, m, z2, b2, 0);
-  oppF(l2, m, z2, sig, a2);
-  printf("Predictions: ");
-  disp(l2, m, a2); // displays train predictions
+  oppF(l2, m, z2, relu, a2);
 
-  oppM(l2, m, a2, y, 1, lds); // calculate last deltas
+  dot(l3, l2, m, t3, a2, z3);
+  oppCM(l3, m, z3, b3, 0);
+  oppF(l3, m, z3, sig, a3);
+
+  printf("Predictions: ");
+  disp(l3, m, a3); // displays train predictions
+
+  oppM(l3, m, a3, y, 1, lds); // calculate last deltas
 }
 
 double cost() 
@@ -105,31 +124,44 @@ void backprop()
 {
   // set all the gradient array values to 0 
   initArr(l1, n, t1g, 0); 
-  initArr(l2, l1, t2g, 0);
   initArr(l1, 1, b1g, 0);
+  initArr(l2, l1, t2g, 0);
   initArr(l2, 1, b2g, 0);
+  initArr(l3, l2, t3g, 0);
+  initArr(l3, 1, b3g, 0);
 
   // calculate activation derivatives and transpose some matrices
-  oppF(l2, m, z2, sigDer, z2Der);
-  oppF(l2, m, z1, reluDer, z1Der);
+  oppF(l1, m, z1, reluDer, z1Der);
+  oppF(l2, m, z2, reluDer, z2Der);
+  oppF(l3, m, z3, sigDer, z3Der);
   trans(n, m, X, xt);
   trans(l1, m, a1, a1t);
+  trans(l2, m, a2, a2t);
   trans(l1, n, t1, t1t);
   trans(l2, l1, t2, t2t);
+  trans(l3, l2, t3, t3t);
 
   for(int i=0;i<m;++i) // gradient accumulation
   {
     // last layer gradients
-    for(int j=0;j<l2;++j)
+    for(int j=0;j<l3;++j)
     {
-      d2[j][0] = lds[j][i] * z2Der[j][i];
+      d3[j][0] = lds[j][i] * z3Der[j][i];
     }
+    getRow(m, l2, a2t, i, a2i);
+    dot(l3, 1, l2, d3, a2i, tg3l);
+    oppMM(l3, l2, t3g, tg3l, 0);
+    oppMM(l3, 1, b3g, d3, 0);
+
+    dot(l2, l3, 1, t3t, d3, d2);
+    for(int j=0;j<l2;++j)
+      d2[j][0] *= z2Der[j][i];
     getRow(m, l1, a1t, i, a1i);
     dot(l2, 1, l1, d2, a1i, tg2l);
     oppMM(l2, l1, t2g, tg2l, 0);
     oppMM(l2, 1, b2g, d2, 0);
 
-    // second to last layer gradients
+    // third to last layer gradients
     dot(l1, l2, 1, t2t, d2, d1);
     for(int j=0;j<l1;++j)
       d1[j][0] *= z1Der[j][i];
@@ -144,15 +176,19 @@ void descent(double lr) // normal gradient descent
 {
   // scale down gradients (dividing by m since i didn't do that in backprop although i should have
   oppSM(l1, n, t1g, lr / m, 2);
-  oppSM(l2, l1, t2g, lr / m, 2);
   oppSM(l1, 1, b1g, lr / m, 2);
+  oppSM(l2, l1, t2g, lr / m, 2);
   oppSM(l2, 1, b2g, lr / m, 2);
+  oppSM(l3, l2, t3g, lr / m, 2);
+  oppSM(l3, 1, b3g, lr / m, 2);
 
   // modify weights and biases by gradients
   oppMM(l1, n, t1, t1g, 1);
-  oppMM(l2, l1, t2, t2g, 1);
   oppMM(l1, 1, b1, b1g, 1);
+  oppMM(l2, l1, t2, t2g, 1);
   oppMM(l2, 1, b2, b2g, 1);
+  oppMM(l3, l2, t3, t3g, 1);
+  oppMM(l3, 1, b3, b3g, 1);
 }
 
 double randVal(double _)
@@ -164,9 +200,11 @@ void train(int epochs, double lr)
 {
   // initialize random values to trainable parameters
   oppFM(l1, n, t1, randVal);
-  oppFM(l2, l1, t2, randVal);
   oppFM(l1, 1, b1, randVal);
+  oppFM(l2, l1, t2, randVal);
   oppFM(l2, 1, b2, randVal);
+  oppFM(l3, l2, t3, randVal);
+  oppFM(l3, 1, b3, randVal);
 
   for(int i=0;i<epochs;i++)
   {
@@ -180,7 +218,7 @@ void train(int epochs, double lr)
 
 int main()
 {
-  train(100000, 1); // not sure why learning rate can be massive and still work
+  train(1000, 0.1); // not sure why learning rate can be massive and still work
   printf("Final Cost: %f\n", cost());
   return 0;
 }
